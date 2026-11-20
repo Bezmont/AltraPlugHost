@@ -1,0 +1,24 @@
+# CMake / build output
+build/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.ipch
+
+# VS Code
+.vscode/
+
+# Misc
+*.log
+Thumbs.db
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
