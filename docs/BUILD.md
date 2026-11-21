@@ -26,6 +26,24 @@ The build produces two plugins, both copied to `build/VST3/`:
 
 Close Live before rebuilding; Windows won't overwrite a plugin DLL that Live has loaded.
 
+## DockTest (developer tool)
+
+A small host for testing editor docking without Live. Build it with
+`-DALTRA_BUILD_DOCKTEST=ON`. It opens and closes AltraPlugHost's editor the way a host does, and
+after each open saves a screenshot and the native window tree to the output folder:
+
+```
+DockTest <AltraPlugHost.vst3> <target.vst3> <output folder> [cycles] [first wait ms]
+DockTest --raw <target.vst3> <output folder> <park-hidden|park-visible|direct|setparent|park-on-destroy>
+DockTest --count <target.vst3>
+```
+
+`--count` prints how many parameters a plugin has and how many are automatable (redirect stdout
+to a file; DockTest is a GUI app). The normal mode also logs AltraPlugHost's parameter slots.
+
+`--raw` hosts the target directly and moves its editor between windows in one specific way.
+Windows appear on screen while it runs.
+
 ## Loading in Live
 
 Live allows only one custom VST3 folder, so `C:\Program Files\Common Files\VST3` contains

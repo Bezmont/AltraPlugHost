@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Diagnostics.h"
 
 namespace altra
 {
@@ -9,6 +10,8 @@ namespace
     constexpr auto stateTag       = "AltraPlugHost";
     constexpr auto hostedStateTag = "HostedState";
     constexpr auto windowTag      = "Window";
+
+    std::atomic<int> liveInstances { 0 };
 }
 
 juce::AudioProcessor::BusesProperties WrapperProcessor::makeBuses()
@@ -26,21 +29,29 @@ WrapperProcessor::WrapperProcessor()
     : AudioProcessor (makeBuses())
 {
     juce::addDefaultFormatsToManager (formatManager);
+    diagnostics::log ("instance created (" + juce::String (++liveInstances) + " alive)");
 }
 
 WrapperProcessor::~WrapperProcessor()
 {
+    const diagnostics::ScopedStep step ("instance deleting, hosting " + getHostedPluginName().quoted());
+
     cancelPendingUpdate();
     onStatusChanged = nullptr;
 
     // The editor must go before the plug-in it belongs to.
-    destroyEditorWindow();
+    destroyHostedEditor();
 
     if (hosted != nullptr)
     {
         hosted->removeListener (this);
+        parameterBank.attach (nullptr);
+
+        const diagnostics::ScopedStep deleting ("deleting hosted " + hosted->getName().quoted());
         hosted.reset();
     }
+
+    diagnostics::log ("instance deleted (" + juce::String (--liveInstances) + " alive)");
 }
 
 //==============================================================================
@@ -200,7 +211,12 @@ juce::String WrapperProcessor::loadPlugin (const juce::PluginDescription& descri
     }
 
     juce::String error;
-    auto instance = formatManager.createPluginInstance (description, sampleRate, maxBlockSize, error);
+    std::unique_ptr<juce::AudioPluginInstance> instance;
+
+    {
+        const diagnostics::ScopedStep step ("loading " + description.name.quoted());
+        instance = formatManager.createPluginInstance (description, sampleRate, maxBlockSize, error);
+    }
 
     if (instance == nullptr)
         return error.isNotEmpty() ? error : "Couldn't load " + description.name;
@@ -214,8 +230,7 @@ juce::String WrapperProcessor::loadPlugin (const juce::PluginDescription& descri
         prepareHosted (*instance, sampleRate, maxBlockSize);
 
     // The old editor must go before the old plug-in.
-    destroyEditorWindow();
-    savedWindowBounds = {};
+    destroyHostedEditor();
 
     std::unique_ptr<juce::AudioPluginInstance> old;
 
@@ -232,11 +247,13 @@ juce::String WrapperProcessor::loadPlugin (const juce::PluginDescription& descri
     }
 
     hosted->addListener (this);
+    parameterBank.attach (hosted.get()); // before the old plug-in goes: the slots may point into it
     setLatencySamples (hosted->getLatencySamples());
     tailSeconds = hosted->getTailLengthSeconds();
 
     if (old != nullptr)
     {
+        const diagnostics::ScopedStep step ("deleting hosted " + old->getName().quoted());
         old->removeListener (this);
         old->releaseResources();
         old.reset();
@@ -250,8 +267,7 @@ void WrapperProcessor::unloadPlugin()
 {
     JUCE_ASSERT_MESSAGE_THREAD
 
-    destroyEditorWindow();
-    savedWindowBounds = {};
+    destroyHostedEditor();
 
     std::unique_ptr<juce::AudioPluginInstance> old;
 
@@ -262,8 +278,11 @@ void WrapperProcessor::unloadPlugin()
         missingPluginState.reset();
     }
 
+    parameterBank.attach (nullptr);
+
     if (old != nullptr)
     {
+        const diagnostics::ScopedStep step ("deleting hosted " + old->getName().quoted());
         old->removeListener (this);
         old->releaseResources();
         old.reset();
@@ -301,114 +320,171 @@ void WrapperProcessor::audioProcessorChanged (juce::AudioProcessor* processor, c
         latencyDirty = true;
         triggerAsyncUpdate();
     }
+
+    if (details.parameterInfoChanged && processor == hosted.get())
+    {
+        parameterNamesDirty = true;
+        triggerAsyncUpdate();
+    }
+}
+
+// The hosted plug-in's parameters, passed on to the host through the parameter bank. Any thread.
+void WrapperProcessor::audioProcessorParameterChanged (juce::AudioProcessor* processor, int index, float newValue)
+{
+    parameterBank.hostedValueChanged (processor, index, newValue);
+}
+
+void WrapperProcessor::audioProcessorParameterChangeGestureBegin (juce::AudioProcessor* processor, int index)
+{
+    parameterBank.hostedGesture (processor, index, true);
+}
+
+void WrapperProcessor::audioProcessorParameterChangeGestureEnd (juce::AudioProcessor* processor, int index)
+{
+    parameterBank.hostedGesture (processor, index, false);
 }
 
 //==============================================================================
-void WrapperProcessor::showHostedEditor (juce::Component* componentInsideHost)
+void WrapperProcessor::ensureParkingWindow()
+{
+    if (editorWindow != nullptr)
+        return;
+
+    editorWindow = std::make_unique<HostedEditorWindow>();
+    editorWindow->addToDesktop();   // hidden: a parked editor still needs a native window to live in
+}
+
+bool WrapperProcessor::buildHostedEditor (juce::Component* slot)
 {
     JUCE_ASSERT_MESSAGE_THREAD
 
+    if (hostedEditor != nullptr)
+        return true;
+
     if (hosted == nullptr)
-        return;
+        return false;
 
-    if (editorWindow == nullptr)
+    // This is the expensive part, paid once per plug-in instance.
+    const diagnostics::ScopedStep step ("opening editor of " + hosted->getName().quoted());
+    hostedEditor.reset (hosted->hasEditor() ? hosted->createEditorAndMakeActive()
+                                            : new juce::GenericAudioProcessorEditor (*hosted));
+
+    if (hostedEditor == nullptr)
     {
-        // This is the expensive part, paid once per plug-in instance.
-        std::unique_ptr<juce::AudioProcessorEditor> editor (hosted->hasEditor()
-                                                                ? hosted->createEditorAndMakeActive()
-                                                                : new juce::GenericAudioProcessorEditor (*hosted));
-        if (editor == nullptr)
-            return;
-
-        editorWindow = std::make_unique<HostedEditorWindow> (getWindowTitle(), std::move (editor));
-        editorWindow->setAlwaysOnTop (alwaysOnTop);
-
-        const auto& displays = juce::Desktop::getInstance().getDisplays();
-        const auto* display = displays.getDisplayForPoint (savedWindowBounds.getPosition().toFloat());
-
-        if (! savedWindowBounds.isEmpty() && display != nullptr
-            && display->userBounds.toNearestInt().contains (savedWindowBounds.getPosition()))
-            editorWindow->setTopLeftPosition (savedWindowBounds.getPosition());
-        else
-            editorWindow->centreAroundComponent (componentInsideHost, editorWindow->getWidth(), editorWindow->getHeight());
-
-        editorWindow->addToDesktop();
-
-        editorWindow->onVisibilityChanged = [this]
-        {
-            if (editorWindow != nullptr && ! editorWindow->isVisible())
-                savedWindowBounds = editorWindow->getBounds();
-
-            notifyStatusChanged();
-        };
+        hostedEditorFailed = true;
+        return false;
     }
 
-    editorWindow->attachToHostWindow (componentInsideHost);
-    editorWindow->setVisible (true);
-    editorWindow->toFront (true);
+    ensureParkingWindow();
+
+    if (slot != nullptr)
+    {
+        slot->addAndMakeVisible (*hostedEditor);
+        dockSlot = slot;
+    }
+    else
+    {
+        editorWindow->hold (*hostedEditor);
+    }
+
+    return true;
+}
+
+void WrapperProcessor::dockHostedEditor (juce::Component& slot)
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+
+    if (hostedEditor == nullptr || dockSlot == &slot)
+        return;
+
+    editorWindow->release();
+    slot.addAndMakeVisible (*hostedEditor); // only reparents the plug-in's native window
+    dockSlot = &slot;
+}
+
+void WrapperProcessor::parkHostedEditor()
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+
+    if (hostedEditor == nullptr || dockSlot == nullptr)
+        return;
+
+    dockSlot->removeChildComponent (hostedEditor.get());
+    dockSlot = nullptr;
+    editorWindow->hold (*hostedEditor);
+}
+
+void WrapperProcessor::setCollapsed (bool shouldBeCollapsed)
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+
+    if (collapsed == shouldBeCollapsed)
+        return;
+
+    collapsed = shouldBeCollapsed;
     notifyStatusChanged();
 }
 
-void WrapperProcessor::hideHostedEditor()
+void WrapperProcessor::destroyHostedEditor()
 {
-    JUCE_ASSERT_MESSAGE_THREAD
+    if (dockSlot != nullptr && hostedEditor != nullptr)
+        dockSlot->removeChildComponent (hostedEditor.get());
+
+    dockSlot = nullptr;
 
     if (editorWindow != nullptr)
-        editorWindow->setVisible (false);
-}
+        editorWindow->release();
 
-bool WrapperProcessor::isHostedEditorVisible() const
-{
-    return editorWindow != nullptr && editorWindow->isVisible();
-}
+    // The editor goes before the plug-in it belongs to, and before the window it was parked in.
+    if (hostedEditor != nullptr)
+    {
+        const diagnostics::ScopedStep step ("deleting hosted editor");
+        hostedEditor.reset();
+    }
 
-void WrapperProcessor::setHostedWindowAlwaysOnTop (bool shouldBeOnTop)
-{
-    alwaysOnTop = shouldBeOnTop;
-
-    if (editorWindow != nullptr)
-        editorWindow->setAlwaysOnTop (shouldBeOnTop);
-}
-
-void WrapperProcessor::destroyEditorWindow()
-{
-    if (editorWindow == nullptr)
-        return;
-
-    savedWindowBounds = editorWindow->getBounds();
-    editorWindow->onVisibilityChanged = nullptr;
     editorWindow.reset();
+    hostedEditorFailed = false;
 }
 
-juce::String WrapperProcessor::getWindowTitle() const
+juce::String WrapperProcessor::getTrackName() const
 {
-    auto title = getHostedPluginName();
-
     const juce::ScopedLock sl (pendingLock);
+    return trackName;
+}
 
-    if (trackName.isNotEmpty())
-        title << " - " << trackName;
-
-    return title;
+std::optional<juce::Colour> WrapperProcessor::getTrackColour() const
+{
+    const juce::ScopedLock sl (pendingLock);
+    return trackColour;
 }
 
 void WrapperProcessor::updateTrackProperties (const TrackProperties& properties)
 {
+    // May come from any thread.
     {
         const juce::ScopedLock sl (pendingLock);
-        trackName = properties.name.value_or (juce::String());
+        // Live sends the name and the colour in separate calls, so only change what's given.
+        if (properties.name.has_value())
+            trackName = *properties.name;
+
+        if (properties.colourARGB.has_value())
+            trackColour = juce::Colour (*properties.colourARGB);
     }
 
-    titleDirty = true;
+    juce::String message ("track properties: name ");
+    message << (properties.name.has_value() ? properties.name->quoted() : juce::String ("(none)"));
+
+    if (properties.colourARGB.has_value())
+        message << ", colour " << juce::Colour (*properties.colourARGB).toDisplayString (false);
+
+    diagnostics::log (message);
+    trackDirty = true;
     triggerAsyncUpdate();
 }
 
 //==============================================================================
 void WrapperProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (juce::MessageManager::existsAndIsCurrentThread() && editorWindow != nullptr && editorWindow->isVisible())
-        savedWindowBounds = editorWindow->getBounds();
-
     const juce::ScopedLock sl (stateLock);
 
     juce::XmlElement root (stateTag);
@@ -431,11 +507,20 @@ void WrapperProcessor::getStateInformation (juce::MemoryBlock& destData)
     }
 
     auto* window = root.createNewChildElement (windowTag);
-    window->setAttribute ("x", savedWindowBounds.getX());
-    window->setAttribute ("y", savedWindowBounds.getY());
-    window->setAttribute ("w", savedWindowBounds.getWidth());
-    window->setAttribute ("h", savedWindowBounds.getHeight());
-    window->setAttribute ("alwaysOnTop", alwaysOnTop);
+    window->setAttribute ("collapsed", collapsed);
+    window->setAttribute ("slim", slimCollapsed);
+
+    const auto savePosition = [window] (const char* prefix, const std::optional<juce::Point<int>>& position)
+    {
+        if (position.has_value())
+        {
+            window->setAttribute (juce::String (prefix) + "X", position->x);
+            window->setAttribute (juce::String (prefix) + "Y", position->y);
+        }
+    };
+
+    savePosition ("expanded", expandedPosition);
+    savePosition ("collapsed", collapsedPosition);
 
     copyXmlToBinary (root, destData);
 }
@@ -473,14 +558,27 @@ void WrapperProcessor::applyPendingState()
     if (xml == nullptr)
         return;
 
+    // Older Sets also stored the popped-out window's position here; it's ignored now.
     if (auto* window = xml->getChildByName (windowTag))
     {
-        savedWindowBounds = { window->getIntAttribute ("x"), window->getIntAttribute ("y"),
-                              window->getIntAttribute ("w"), window->getIntAttribute ("h") };
-        setHostedWindowAlwaysOnTop (window->getBoolAttribute ("alwaysOnTop"));
+        collapsed = window->getBoolAttribute ("collapsed");
+        // Older builds saved a snap setting per instance ("snap", "snapMode"); it's global now.
+        slimCollapsed = window->getBoolAttribute ("slim", true);
+
+        const auto loadPosition = [window] (const char* prefix) -> std::optional<juce::Point<int>>
+        {
+            const auto x = juce::String (prefix) + "X", y = juce::String (prefix) + "Y";
+
+            if (! window->hasAttribute (x) || ! window->hasAttribute (y))
+                return std::nullopt;
+
+            return juce::Point<int> (window->getIntAttribute (x), window->getIntAttribute (y));
+        };
+
+        expandedPosition = loadPosition ("expanded");
+        collapsedPosition = loadPosition ("collapsed");
     }
 
-    const auto restoredBounds = savedWindowBounds;
     auto* pluginXml = xml->getChildByName ("PLUGIN");
     juce::PluginDescription description;
 
@@ -504,14 +602,12 @@ void WrapperProcessor::applyPendingState()
     }
 
     const auto error = loadPlugin (description, hostedState);
-    savedWindowBounds = restoredBounds;
 
     if (error.isNotEmpty())
     {
         DBG ("Couldn't restore hosted plug-in: " << error);
         unloadPlugin();
         missingPluginState = std::move (xml);
-        savedWindowBounds = restoredBounds;
         notifyStatusChanged();
     }
 }
@@ -527,8 +623,11 @@ void WrapperProcessor::handleAsyncUpdate()
         notifyStatusChanged();
     }
 
-    if (titleDirty.exchange (false) && editorWindow != nullptr)
-        editorWindow->setName (getWindowTitle());
+    if (parameterNamesDirty.exchange (false))
+        parameterBank.refreshNames();
+
+    if (trackDirty.exchange (false))
+        notifyStatusChanged();
 }
 
 void WrapperProcessor::notifyStatusChanged()
