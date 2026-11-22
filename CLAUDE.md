@@ -14,7 +14,7 @@ and the core architecture: the hosted editor lives in a top-level window owned b
 - **PoC proven in Live (2026-11-19)** with Komplete Kontrol: the hosted window survives closing
   the wrapper, and Show after Hide is instant. Results and the minimise problem are in
   `docs/DESIGN.md` ("PoC results"). Build steps: `docs/BUILD.md`.
-- Done: git repo, JUCE 9.0.6 submodule, CMake with two variants (FX `AltraPlugHost`, instrument
+- Done: git repo, JUCE 9.0.6 submodule, CMake with two variants (FX `AltraPlugHost FX`, instrument
   `AltraPlugHost Instrument`), load menu, Show/Hide, always-on-top, audio/MIDI pass-through,
   latency reporting, state save/restore (keeps the state of a plugin that fails to load).
 - All six PoC criteria pass, including latency compensation and Set save/reload. MIDI only

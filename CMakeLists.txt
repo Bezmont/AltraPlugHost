@@ -16,10 +16,12 @@ set(ALTRA_VST3_DIR "${CMAKE_BINARY_DIR}/VST3" CACHE PATH "Where built VST3 bundl
 
 # Two variants of the same code: Live puts instruments and effects in different slots, and a
 # VST3 declares which one it is up front.
+# COMPANY_NAME is the vendor Live shows. PLUGIN_MANUFACTURER_CODE and PLUGIN_CODE make up each
+# plug-in's ID: changing them makes Live treat the plug-ins as new ones, and saved Sets lose them.
 function(altra_add_variant target product_name plugin_code is_synth)
     juce_add_plugin(${target}
-        COMPANY_NAME             "Altra"
-        PLUGIN_MANUFACTURER_CODE Altr
+        COMPANY_NAME             "Jezric"
+        PLUGIN_MANUFACTURER_CODE Jezr
         PLUGIN_CODE              ${plugin_code}
         FORMATS                  VST3
         PRODUCT_NAME             "${product_name}"
@@ -66,14 +68,14 @@ endfunction()
 
 set(ALTRA_PARAMETER_SLOTS 4096 CACHE STRING "Automation slots AltraPlugHost reports to the host. Raising it later keeps saved automation; lowering it breaks lanes on removed slots.")
 
-altra_add_variant(AltraPlugHost           "AltraPlugHost"            Aphf FALSE)
+altra_add_variant(AltraPlugHost           "AltraPlugHost FX"         Aphf FALSE)
 altra_add_variant(AltraPlugHostInstrument "AltraPlugHost Instrument" Aphi TRUE)
 
 # Receiver: outputs one MIDI channel of an AltraPlugHost instance's hosted plug-in, so each
 # channel can be recorded on its own track in Live. See "Multi-channel MIDI" in DESIGN.md.
 juce_add_plugin(AltraPlugHostReceiver
-    COMPANY_NAME             "Altra"
-    PLUGIN_MANUFACTURER_CODE Altr
+    COMPANY_NAME             "Jezric"
+    PLUGIN_MANUFACTURER_CODE Jezr
     PLUGIN_CODE              Aphr
     FORMATS                  VST3
     PRODUCT_NAME             "AltraPlugHost Receiver"

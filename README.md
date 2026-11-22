@@ -19,7 +19,7 @@ destroyed: AltraPlugHost parks it in a hidden window of its own. Reopening is in
 - The hosted plug-in's window is built once and then kept. Closing and reopening the device
   window in Live is instant, and the plug-in never redraws from scratch.
 - Two variants, because Live keeps instruments and effects in different slots:
-  **AltraPlugHost** (effects) and **AltraPlugHost Instrument** (instruments).
+  **AltraPlugHost FX** (effects) and **AltraPlugHost Instrument** (instruments).
 
 ### Behaves like the plug-in itself
 - **Audio and MIDI** pass through to the hosted plug-in, and its MIDI output is passed on to Live.
@@ -91,14 +91,14 @@ Nothing else needs installing: the Visual C++ runtime is built in.
 1. Get the three `.vst3` bundles: from this repository's Releases when available, or by building
    them (below).
 2. Copy them into `C:\Program Files\Common Files\VST3`:
-   - `AltraPlugHost.vst3`
+   - `AltraPlugHost FX.vst3`
    - `AltraPlugHost Instrument.vst3`
    - `AltraPlugHost Receiver.vst3` (only needed for multi-channel MIDI)
 3. In Live, rescan plug-ins (Settings > Plug-Ins > Rescan).
 
 ## Use
 
-1. Drop **AltraPlugHost Instrument** on a MIDI track (or **AltraPlugHost** on an audio or MIDI
+1. Drop **AltraPlugHost Instrument** on a MIDI track (or **AltraPlugHost FX** on an audio or MIDI
    track for an effect) and open its window.
 2. Click **Browse** and pick a plug-in.
 3. Use it as normal. Close and reopen the window as often as you like; it's instant.
