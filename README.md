@@ -88,9 +88,12 @@ Nothing else needs installing: the Visual C++ runtime is built in.
 
 ## Install
 
-1. Get the three `.vst3` bundles: from this repository's Releases when available, or by building
-   them (below).
-2. Copy them into `C:\Program Files\Common Files\VST3`:
+1. Download the zip from the latest
+   [release](https://github.com/Bezmont/AltraPlugHost/releases/latest) and unzip it. (Each
+   build of `main` is also downloadable from the
+   [Actions](https://github.com/Bezmont/AltraPlugHost/actions/workflows/build.yml) tab, under
+   Artifacts, if you're signed in to GitHub.) Or build them yourself (below).
+2. Copy the three `.vst3` folders into `C:\Program Files\Common Files\VST3`:
    - `AltraPlugHost FX.vst3`
    - `AltraPlugHost Instrument.vst3`
    - `AltraPlugHost Receiver.vst3` (only needed for multi-channel MIDI)

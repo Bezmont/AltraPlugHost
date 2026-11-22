@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(AltraPlugHost VERSION 0.1.0 LANGUAGES C CXX)
+# The plug-ins' version. Release builds set it from the git tag (v1.2.3 -> 1.2.3).
+set(ALTRA_VERSION "0.1.0" CACHE STRING "Version of the plug-ins (major.minor.patch)")
+
+project(AltraPlugHost VERSION ${ALTRA_VERSION} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

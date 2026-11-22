@@ -1,0 +1,90 @@
+# Builds and tests every push to main and every pull request, and uploads the plug-ins as a
+# downloadable artifact. Pushing a version tag (v1.2.3) also publishes a GitHub Release with the zip:
+#
+#   git tag v1.0.0
+#   git push origin v1.0.0
+#
+# A tag with a suffix (v1.0.0-beta.1) is published as a pre-release.
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed only to create the release on a tag push
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out (with JUCE)
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # Tag v1.2.3 or v1.2.3-beta.1 -> plug-in version 1.2.3; other builds keep CMake's default.
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_type }}' -eq 'tag') {
+              $name = '${{ github.ref_name }}'
+              $numeric = ($name.TrimStart('v') -split '-')[0]
+              "label=$name" >> $env:GITHUB_OUTPUT
+              "cmake=-DALTRA_VERSION=$numeric" >> $env:GITHUB_OUTPUT
+          } else {
+              "label=ci-${{ github.run_number }}" >> $env:GITHUB_OUTPUT
+              "cmake=" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B build -A x64 -DALTRA_BUILD_DOCKTEST=ON ${{ steps.version.outputs.cmake }}
+
+      - name: Build the plug-ins and the MIDI bus test
+        shell: pwsh
+        run: >
+          cmake --build build --config Release --parallel
+          --target AltraPlugHost_VST3 AltraPlugHostInstrument_VST3 AltraPlugHostReceiver_VST3 MidiBusTest
+
+      - name: Test the MIDI bus
+        shell: pwsh
+        run: ./build/MidiBusTest_artefacts/Release/MidiBusTest.exe
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $name = "AltraPlugHost-${{ steps.version.outputs.label }}-win-x64"
+          $stage = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          foreach ($bundle in 'AltraPlugHost FX.vst3', 'AltraPlugHost Instrument.vst3', 'AltraPlugHost Receiver.vst3') {
+              $source = Join-Path build/VST3 $bundle
+              if (-not (Test-Path $source)) { throw "Missing $source" }
+              Copy-Item -Recurse $source $stage
+          }
+          Copy-Item README.md, LICENSE $stage
+          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+          "name=$name" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.zip }}
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ steps.package.outputs.zip }}
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

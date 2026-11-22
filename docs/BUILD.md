@@ -80,3 +80,17 @@ See "Proof-of-concept success criteria" in `DESIGN.md`. Also check:
 - The hosted window should not have its own taskbar button.
 - Delete the device and undo the deletion; close the Set with the hosted window open.
 - With Live 12 plug-in sandboxing on and off.
+
+## Continuous integration and releases
+
+`.github/workflows/build.yml` builds the three plug-ins on GitHub's Windows runners for every push
+to `main` and every pull request, runs `MidiBusTest`, and uploads a zip (the three `.vst3`
+bundles, README and LICENSE) as the run's artifact.
+
+To publish a release, push a version tag. The tag sets the plug-ins' version (`ALTRA_VERSION`),
+and the zip is attached to a GitHub Release. A tag with a suffix becomes a pre-release.
+
+```
+git tag v0.1.0
+git push origin v0.1.0
+```
