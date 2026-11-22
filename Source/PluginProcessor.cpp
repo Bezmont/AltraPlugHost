@@ -30,6 +30,7 @@ WrapperProcessor::WrapperProcessor()
 {
     juce::addDefaultFormatsToManager (formatManager);
     diagnostics::log ("instance created (" + juce::String (++liveInstances) + " alive)");
+    startTimer (1000);
 }
 
 WrapperProcessor::~WrapperProcessor()
@@ -37,6 +38,7 @@ WrapperProcessor::~WrapperProcessor()
     const diagnostics::ScopedStep step ("instance deleting, hosting " + getHostedPluginName().quoted());
 
     cancelPendingUpdate();
+    stopTimer();
     onStatusChanged = nullptr;
 
     // The editor must go before the plug-in it belongs to.
@@ -133,6 +135,7 @@ void WrapperProcessor::reset()
 void WrapperProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    midiPublisher.beginBlock();
     const juce::ScopedTryLock tl (audioLock);
 
     const auto numSamples = buffer.getNumSamples();
@@ -149,6 +152,7 @@ void WrapperProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
             buffer.clear();
        #endif
         midi.clear();
+        midiPublisher.publish (midi, numSamples);
         return;
     }
 
@@ -169,6 +173,7 @@ void WrapperProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
 
     plugin.setPlayHead (getPlayHead());
     plugin.processBlock (work, midi);
+    midiPublisher.publish (midi, numSamples); // midi now holds the plug-in's output
 
     for (int ch = 0; ch < ourOuts; ++ch)
     {
@@ -489,6 +494,7 @@ void WrapperProcessor::getStateInformation (juce::MemoryBlock& destData)
 
     juce::XmlElement root (stateTag);
     root.setAttribute ("version", 1);
+    root.setAttribute ("busId", juce::String::toHexString ((juce::int64) midiPublisher.getId()));
 
     if (hosted != nullptr)
     {
@@ -557,6 +563,9 @@ void WrapperProcessor::applyPendingState()
 
     if (xml == nullptr)
         return;
+
+    if (xml->hasAttribute ("busId"))
+        midiPublisher.setId ((uint64_t) xml->getStringAttribute ("busId").getHexValue64());
 
     // Older Sets also stored the popped-out window's position here; it's ignored now.
     if (auto* window = xml->getChildByName (windowTag))
@@ -628,6 +637,19 @@ void WrapperProcessor::handleAsyncUpdate()
 
     if (trackDirty.exchange (false))
         notifyStatusChanged();
+}
+
+void WrapperProcessor::timerCallback()
+{
+    const auto track = getTrackName();
+    const auto plugin = isPluginLoaded() ? getHostedPluginName() : juce::String();
+
+    if (track != busTrackName || plugin != busPluginName)
+    {
+        busTrackName = track;
+        busPluginName = plugin;
+        midiPublisher.setNames (track, plugin);
+    }
 }
 
 void WrapperProcessor::notifyStatusChanged()

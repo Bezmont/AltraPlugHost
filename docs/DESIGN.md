@@ -534,3 +534,79 @@ bottom row, left: floating bar with remembered position), and a burger menu whos
 "Slim collapsed bar". Unload, the snap drop-down and the Slim checkbox are gone. The snap position
 is now chosen per collapse by the button used (`WrapperProcessor::collapseMode`), so the global
 snap setting file is gone too. Collapsed bar: swatch, name, Restore, close. Minimum width 260.
+
+## Multi-channel MIDI (receivers)
+
+**Problem.** When a Live track takes another track's plug-in as "MIDI From", Live merges all MIDI
+channels into one, and clips store no channel anyway. So a plug-in that sends MIDI on several
+channels (Maschine, set up to) can't be recorded channel by channel on separate tracks. Confirmed
+by the user: there is only a device choice, no channel choice, and the channel doesn't survive.
+
+**Design.** AltraPlugHost (the server) publishes the hosted plug-in's MIDI output, channels
+intact, to a new plug-in, **AltraPlugHost Receiver**. Each receiver subscribes to one server and
+one channel and outputs only that channel. A recording track takes "MIDI From" the receiver.
+Per channel that is a receiver plus a recording track (Live records a track's input, not its own
+plug-in's output).
+
+- **Transport:** `Source/MidiBus.*`. A named shared-memory block per process
+  (`Local\AltraPlugHost.MidiBus.<pid>`), so the separate DLLs share it. 32 server slots, each
+  with a ring of 4096 channel messages (SysEx skipped). The server never blocks; receivers keep
+  their own read position and detect overruns. The layout size is part of the magic number, so
+  mismatched builds leave the bus off instead of misreading it.
+- **Identity:** each server has a random 64-bit ID saved with the Set (`busId`); receivers save
+  the server ID and channel and reconnect whenever both exist. A duplicated track keeps its own
+  new ID. The receiver's menu shows "<hosted plug-in> / <track>".
+- **Ordering, the hard part:** Live runs tracks in parallel, so a receiver may run before or after
+  its server in an audio cycle. Plan: set the receiver track's "MIDI From" to the server track so
+  Live must process the server first (the merged MIDI arriving that way is ignored); the receiver
+  then reads the same block with no delay. If that doesn't hold, deliver consistently one block
+  late instead of wobbling. Events from a block older than the newest go at offset 0.
+- **Note hygiene:** the receiver tracks held notes and sends note-offs when its server or channel
+  changes or the server disappears.
+- Both AltraPlugHost variants now also output the hosted plug-in's MIDI to Live
+  (`NEEDS_MIDI_OUTPUT`), which also makes them selectable as "MIDI From".
+
+**Timing warning.** The receiver compares the time since the server's newest block started with
+the block period: under half a period means the server ran first in this cycle (same block),
+otherwise the events reach us one block late. It reports the majority each half second; when late,
+the receiver's window shows "MIDI arrives one block late. Set this track's MIDI From to <server
+track>." Connects, disconnects and timing changes go to the lifecycle log; nothing per block.
+`tools/MidiBusTest` checks the bus without Live (server first, receiver first, alternating, the
+timing detection with real sleeps, note-off on channel change, overrun); built with
+`ALTRA_BUILD_DOCKTEST`.
+
+Questions the test build (2026-11-21, with per-block logging, since removed) answered:
+1. Does Maschine's multi-channel output reach us with its channels?
+2. Is the order stable, with and without the receiver track's "MIDI From" set to the server track?
+   Does Live give a host time, the same for every plug-in in a cycle?
+3. Does "MIDI From" list receivers inside one Instrument Rack's chains separately (one hub track)?
+4. Does Live accept CC output from a VST3 (JUCE sends CCs as `LegacyMIDICCOutEvent`)?
+
+**Results in Live (2026-11-21), Maschine 3 at 48 kHz / 256 samples.** Setup: track A AltraPlugHost
+Instrument (Maschine), tracks B and D a receiver each (channels 3 and 2), MIDI From track A;
+tracks C and E record MIDI From B and D, each with an instrument. Works.
+1. Maschine's channels arrive intact (1, 2 and 3 seen separately); each receiver passed only its
+   own. No events late, no overruns.
+2. With the receiver track's MIDI From set to the server track, the receiver ran 0.6-2 ms after
+   the server's block start, in the same cycle: on time. Without it, about 5 ms after (one block):
+   it ran before the server every cycle, so one block late, but stable. Make the routing the
+   documented setup; Live doesn't promise the unrouted order.
+3. Receivers can share one hub track: put them in parallel chains of an Instrument Rack (expand
+   the chain list and drop each into it). A recording track's MIDI From lists the rack, with each
+   receiver in its submenu. Tested with three receivers (channels 1-3): works. In that test the
+   racked receivers ran one block late (stable): the hub track's own MIDI From hadn't been set to
+   the server track (confirmed by the user). Easy to forget, so the receiver should warn about it.
+4. Live gives no host time (`kSystemTimeValid` never set), so it can't identify the cycle.
+5. CCs reach Live from both the server and receivers. Maschine's mod wheel recorded in 1/16 steps
+   either way. The log showed Maschine sends one value of a controller at most every 6,000 samples
+   (125 ms = 1/16 at 120 BPM, at 48 kHz). A test sweep from the receiver (a value every 64
+   samples) records smoothly in Live. So the steps are Maschine's output rate, not ours or Live's.
+6. Spikes in Maschine's recorded mod wheel (values from the other groups' curves on channel 1,
+   identical every loop; follows Group A when moved to channel 4). Traced: the spikes are already
+   in Maschine's raw VST3 output events (traced inside JUCE's hosting, before conversion), with no
+   CC going into Maschine; JUCE's conversion, the bus and the receivers pass every event unchanged
+   (compared event by event). A VCV Rack 2 LFO on channel 1 records as a clean sine through the
+   same path. Others report inconsistent CC output from Maschine. Not ours.
+7. Earlier sparse/swapped-looking CCs with receivers in an Instrument Rack were already sparse in
+   the server's input from Maschine (that Maschine project's state), not caused by the rack.
+

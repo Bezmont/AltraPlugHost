@@ -52,13 +52,14 @@ directory junctions pointing at the build output (set up once, 2026-11-19, with 
 ```
 C:\Program Files\Common Files\VST3\AltraPlugHost.vst3            -> D:\git\AltraPlugHost\build\VST3\AltraPlugHost.vst3
 C:\Program Files\Common Files\VST3\AltraPlugHost Instrument.vst3 -> D:\git\AltraPlugHost\build\VST3\AltraPlugHost Instrument.vst3
+C:\Program Files\Common Files\VST3\AltraPlugHost Receiver.vst3   -> D:\git\AltraPlugHost\build\VST3\AltraPlugHost Receiver.vst3
 ```
 
 A Release build updates what Live loads, with no copying. To recreate them, in an elevated PowerShell:
 
 ```
 $vst3 = 'C:\Program Files\Common Files\VST3'; $build = 'D:\git\AltraPlugHost\build\VST3'
-foreach ($n in 'AltraPlugHost.vst3', 'AltraPlugHost Instrument.vst3') {
+foreach ($n in 'AltraPlugHost.vst3', 'AltraPlugHost Instrument.vst3', 'AltraPlugHost Receiver.vst3') {
     New-Item -ItemType Junction -Path "$vst3\$n" -Target "$build\$n"
 }
 ```

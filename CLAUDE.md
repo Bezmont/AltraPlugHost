@@ -31,6 +31,13 @@ and the core architecture: the hosted editor lives in a top-level window owned b
   Restore, close). Live's window title shows "<plugin>/<track>". Window kept on screen. New editors
   are built straight into the visible window (fixes Moog plugins shrinking in Live). See DESIGN.md
   from "Collapse instead of pop-out" on.
+- Works in Live (2026-11-21): multi-channel MIDI. AltraPlugHost passes the hosted plugin's MIDI
+  out to Live and onto a shared-memory bus; **AltraPlugHost Receiver** (third plugin) outputs one
+  channel of one AltraPlugHost, so each channel can be recorded on its own track (Live merges
+  channels otherwise). Receivers can share a track in an Instrument Rack. The receiver track's
+  MIDI From must be the AltraPlugHost track (else one block late; the receiver warns). See
+  "Multi-channel MIDI (receivers)" in DESIGN.md. Maschine's own CC output is uneven (spikes on
+  channel 1); traced to Maschine, not ours.
 - Live hanging on exit is a Kontakt 8 / NI bug (ni-platform.dll), not ours; confirmed natively.
   The lifecycle log (`Diagnostics.*`) stays as a diagnostic.
 - Next for the real implementation: fix the `kIoChanged` re-prepare race and minimise behaviour
@@ -58,6 +65,9 @@ and the core architecture: the hosted editor lives in a top-level window owned b
 - `Source/PluginBrowser.*`: screenshot grid for picking a plugin, and the thumbnail cache.
 - `Source/ParameterBank.*`: the fixed automation slots that stand in for the hosted plugin's
   parameters.
+- `Source/MidiBus.*`: shared-memory MIDI bus between AltraPlugHost (publisher) and receivers.
+- `Source/Receiver.*`: the AltraPlugHost Receiver plugin (separate CMake target).
+- `tools/MidiBusTest`: console test of the bus, built with `ALTRA_BUILD_DOCKTEST`.
 
 ## Gotchas
 

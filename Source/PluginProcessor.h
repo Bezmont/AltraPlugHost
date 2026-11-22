@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "HostedEditorWindow.h"
 #include "ParameterBank.h"
+#include "MidiBus.h"
 
 namespace altra
 {
@@ -25,7 +26,8 @@ enum class SnapMode { off, bottom, top };
 */
 class WrapperProcessor final : public juce::AudioProcessor,
                                private juce::AudioProcessorListener,
-                               private juce::AsyncUpdater
+                               private juce::AsyncUpdater,
+                               private juce::Timer
 {
 public:
     WrapperProcessor();
@@ -44,7 +46,7 @@ public:
 
     const juce::String getName() const override         { return JucePlugin_Name; }
     bool acceptsMidi() const override                   { return true; }
-    bool producesMidi() const override                  { return false; }
+    bool producesMidi() const override                  { return true; }
     bool isMidiEffect() const override                  { return false; }
     double getTailLengthSeconds() const override        { return tailSeconds.load(); }
 
@@ -126,6 +128,7 @@ private:
     void audioProcessorParameterChangeGestureEnd (juce::AudioProcessor*, int index) override;
     void audioProcessorChanged (juce::AudioProcessor*, const juce::AudioProcessorListener::ChangeDetails&) override;
     void handleAsyncUpdate() override;
+    void timerCallback() override;   // keeps our names on the MIDI bus current
 
     static BusesProperties makeBuses();
     void configureBuses (juce::AudioPluginInstance&) const;
@@ -138,6 +141,8 @@ private:
     //==============================================================================
     juce::AudioPluginFormatManager formatManager;
     ParameterBank parameterBank { *this };
+    midibus::Publisher midiPublisher; // the hosted plug-in's MIDI output, for receivers
+    juce::String busTrackName, busPluginName; // what the bus shows, to update only on change
 
     std::unique_ptr<juce::AudioPluginInstance> hosted;
     juce::CriticalSection audioLock, stateLock;
