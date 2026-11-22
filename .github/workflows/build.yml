@@ -37,15 +37,19 @@ jobs:
               $name = '${{ github.ref_name }}'
               $numeric = ($name.TrimStart('v') -split '-')[0]
               "label=$name" >> $env:GITHUB_OUTPUT
-              "cmake=-DALTRA_VERSION=$numeric" >> $env:GITHUB_OUTPUT
+              "number=$numeric" >> $env:GITHUB_OUTPUT
           } else {
               "label=ci-${{ github.run_number }}" >> $env:GITHUB_OUTPUT
-              "cmake=" >> $env:GITHUB_OUTPUT
+              "number=" >> $env:GITHUB_OUTPUT
           }
 
+      # The arguments go in an array: PowerShell splits an unquoted -DNAME=1.2.3 at the first dot.
       - name: Configure
         shell: pwsh
-        run: cmake -S . -B build -A x64 -DALTRA_BUILD_DOCKTEST=ON ${{ steps.version.outputs.cmake }}
+        run: |
+          $arguments = @('-S', '.', '-B', 'build', '-A', 'x64', '-DALTRA_BUILD_DOCKTEST=ON')
+          if ('${{ steps.version.outputs.number }}') { $arguments += '-DALTRA_VERSION=${{ steps.version.outputs.number }}' }
+          cmake @arguments
 
       - name: Build the plug-ins and the MIDI bus test
         shell: pwsh
