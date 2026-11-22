@@ -17,12 +17,16 @@ cmake --build build --config Release --parallel
 
 Or open the folder in Visual Studio ("Open a local folder") and let it use CMake directly.
 
-The build produces two plugins, both copied to `build/VST3/`:
+The build produces three plugins, all copied to `build/VST3/`:
 
 | Plugin                     | Use it for                       |
 |----------------------------|----------------------------------|
 | `AltraPlugHost.vst3`       | hosting audio effects            |
 | `AltraPlugHost Instrument.vst3` | hosting instruments (Live only puts instruments in the instrument slot) |
+| `AltraPlugHost Receiver.vst3` | passing on one MIDI channel of an AltraPlugHost's hosted plugin |
+
+The Visual C++ runtime is linked statically (`CMAKE_MSVC_RUNTIME_LIBRARY`), so the plugins need no
+redistributable installed.
 
 Close Live before rebuilding; Windows won't overwrite a plugin DLL that Live has loaded.
 

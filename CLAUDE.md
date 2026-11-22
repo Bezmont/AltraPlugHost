@@ -45,9 +45,10 @@ and the core architecture: the hosted editor lives in a top-level window owned b
   (option), "show editor" parameter, sidechain/multi-bus.
 - Works in Live (2026-11-20): parameter bank, 4096 automation slots (`ALTRA_PARAMETER_SLOTS`; don't lower it, saved lanes would break) mapped onto the hosted
   plugin's parameters (record, playback, Configure, names). See "Parameter bank" in DESIGN.md.
-- Private GitHub repo `Bezmont/AltraPlugHost` exists and is set as `origin`, but **nothing has
-  been pushed**. Don't push until the user has reviewed what will be public (the repo is meant
-  to become public eventually).
+- GitHub repo `Bezmont/AltraPlugHost` (`origin`), pushed 2026-11-21 to become public, under AGPLv3 (JUCE's
+  open-source licence). Public-facing docs: `README.md`. Everything committed is public.
+- Next: GitHub Actions build that produces downloadable VST3s. Windows (x64) only until the user
+  has a Mac.
 
 ## Code map
 

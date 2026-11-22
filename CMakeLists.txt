@@ -5,6 +5,10 @@ project(AltraPlugHost VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Build the Visual C++ runtime into the plug-ins, so they need nothing else installed (no
+# Visual C++ Redistributable). Must come before JUCE's targets are created.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 add_subdirectory(external/JUCE)
 
 # Built plugins are copied here, so Live's "VST3 Custom Folder" can point at one place.
