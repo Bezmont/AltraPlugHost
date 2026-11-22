@@ -5,29 +5,27 @@
 namespace altra
 {
 
-/** A top-level window holding the hosted plug-in's editor.
-
-    It is owned by the processor, not by our AudioProcessorEditor, so the host can destroy our
-    editor without touching it. Closing it only hides it; the hosted editor is deleted only
-    when this window is deleted.
+/** The processor's hidden window, where the hosted plug-in's editor is parked while
+    AltraPlugHost's window in Live is closed or collapsed. The editor survives Live destroying
+    that window because it lives here meanwhile. It is never shown. It never owns the editor:
+    the processor does, and moves it between this window and AltraPlugHost's window in Live.
 */
 class HostedEditorWindow final : public juce::DocumentWindow
 {
 public:
-    /** Takes ownership of the editor. The window is not on the desktop yet: call addToDesktop(). */
-    HostedEditorWindow (const juce::String& title, std::unique_ptr<juce::AudioProcessorEditor> editor);
+    /** Not on the desktop yet: call addToDesktop(). */
+    HostedEditorWindow();
     ~HostedEditorWindow() override;
 
-    void closeButtonPressed() override;
+    /** Takes the editor in (without owning it), resizing the window to fit. */
+    void hold (juce::AudioProcessorEditor&);
 
-    /** Makes the host's main window our owner, if we can find it. Safe to call repeatedly. */
-    void attachToHostWindow (juce::Component* componentInsideHost);
+    /** Lets go of the editor so it can be placed somewhere else. Doesn't delete it. */
+    void release();
 
-    std::function<void()> onVisibilityChanged;
+    void closeButtonPressed() override {}
 
 private:
-    void visibilityChanged() override;
-
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HostedEditorWindow)
 };
 

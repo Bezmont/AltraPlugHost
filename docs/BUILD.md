@@ -17,14 +17,36 @@ cmake --build build --config Release --parallel
 
 Or open the folder in Visual Studio ("Open a local folder") and let it use CMake directly.
 
-The build produces two plugins, both copied to `build/VST3/`:
+The build produces three plugins, all copied to `build/VST3/`:
 
 | Plugin                     | Use it for                       |
 |----------------------------|----------------------------------|
 | `AltraPlugHost.vst3`       | hosting audio effects            |
 | `AltraPlugHost Instrument.vst3` | hosting instruments (Live only puts instruments in the instrument slot) |
+| `AltraPlugHost Receiver.vst3` | passing on one MIDI channel of an AltraPlugHost's hosted plugin |
+
+The Visual C++ runtime is linked statically (`CMAKE_MSVC_RUNTIME_LIBRARY`), so the plugins need no
+redistributable installed.
 
 Close Live before rebuilding; Windows won't overwrite a plugin DLL that Live has loaded.
+
+## DockTest (developer tool)
+
+A small host for testing editor docking without Live. Build it with
+`-DALTRA_BUILD_DOCKTEST=ON`. It opens and closes AltraPlugHost's editor the way a host does, and
+after each open saves a screenshot and the native window tree to the output folder:
+
+```
+DockTest <AltraPlugHost.vst3> <target.vst3> <output folder> [cycles] [first wait ms]
+DockTest --raw <target.vst3> <output folder> <park-hidden|park-visible|direct|setparent|park-on-destroy>
+DockTest --count <target.vst3>
+```
+
+`--count` prints how many parameters a plugin has and how many are automatable (redirect stdout
+to a file; DockTest is a GUI app). The normal mode also logs AltraPlugHost's parameter slots.
+
+`--raw` hosts the target directly and moves its editor between windows in one specific way.
+Windows appear on screen while it runs.
 
 ## Loading in Live
 
@@ -34,13 +56,14 @@ directory junctions pointing at the build output (set up once, 2026-11-19, with 
 ```
 C:\Program Files\Common Files\VST3\AltraPlugHost.vst3            -> D:\git\AltraPlugHost\build\VST3\AltraPlugHost.vst3
 C:\Program Files\Common Files\VST3\AltraPlugHost Instrument.vst3 -> D:\git\AltraPlugHost\build\VST3\AltraPlugHost Instrument.vst3
+C:\Program Files\Common Files\VST3\AltraPlugHost Receiver.vst3   -> D:\git\AltraPlugHost\build\VST3\AltraPlugHost Receiver.vst3
 ```
 
 A Release build updates what Live loads, with no copying. To recreate them, in an elevated PowerShell:
 
 ```
 $vst3 = 'C:\Program Files\Common Files\VST3'; $build = 'D:\git\AltraPlugHost\build\VST3'
-foreach ($n in 'AltraPlugHost.vst3', 'AltraPlugHost Instrument.vst3') {
+foreach ($n in 'AltraPlugHost.vst3', 'AltraPlugHost Instrument.vst3', 'AltraPlugHost Receiver.vst3') {
     New-Item -ItemType Junction -Path "$vst3\$n" -Target "$build\$n"
 }
 ```
